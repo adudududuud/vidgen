@@ -141,7 +141,7 @@ def create_app():
             userinfo = token.get('userinfo') or await app.state.google_oauth.userinfo(token=token)
         except Exception:
             raise HTTPException(400, 'Google 登录失败，请重新尝试') from None
-        if not userinfo or not userinfo.get('sub') or not userinfo.get('email') or not userinfo.get('email_verified'):
+        if not userinfo or not userinfo.get('sub') or not userinfo.get('email') or userinfo.get('email_verified') is not True:
             raise HTTPException(403, 'Google 账号未提供已验证的邮箱，无法登录')
         user = db.upsert_google_user(userinfo['sub'], userinfo['email'], userinfo.get('name', ''), userinfo.get('picture', ''))
         if not user['is_active']:
