@@ -32,6 +32,7 @@ from ..tasks.workflow_tasks import execute_workflow_task
 from ..services.providers.factory import ProviderFactory
 from ..services.realtime import publish_user_event
 from ..utils.rate_limit import enforce_rate_limit, env_limit
+from ..utils.internal_webhook import post_signed_generation_callback
 
 load_dotenv()
 
@@ -62,9 +63,8 @@ async def simulate_webhook_call(work_id: int):
         
         try:
             # Call our own webhook endpoint
-            response = await client.post(
-                f"{BACKEND_URL}/api/webhook/replicate/{work_id}",
-                json=payload
+            response = await post_signed_generation_callback(
+                client, f"{BACKEND_URL}/api/webhook/replicate/{work_id}", work_id, payload
             )
             logger.info(f"Simulated webhook for work {work_id}: {response.status_code}")
         except Exception as e:
@@ -331,6 +331,27 @@ async def check_moderation_before_generate(
         )
 
 
+def _get_ready_workflow(db: Session, generation_model: GenerationModel):
+    """Validate the workflow before any credits are charged."""
+    if not generation_model.workflow_id:
+        return None, "Model must use a workflow. This model has no workflow configured."
+
+    workflow = db.query(Workflow).filter(
+        Workflow.id == generation_model.workflow_id
+    ).first()
+    if workflow is None:
+        return None, "Model workflow was not found."
+
+    nodes = workflow.nodes or []
+    api_nodes = [node for node in nodes if node.get("type") == "api_call"]
+    if not api_nodes:
+        return None, "Model workflow has no API generation nodes."
+    if any(not node.get("api_id") for node in api_nodes):
+        return None, "Model workflow contains an API node without an API configuration."
+
+    return workflow, None
+
+
 @router.post("")
 async def create_generation(
     request: GenerateRequest,
@@ -420,6 +441,14 @@ async def create_generation(
                 status_code=status.HTTP_400_BAD_REQUEST
             )
 
+        # Validate configured workflow before persisting a Work or deducting credits.
+        workflow, workflow_error = _get_ready_workflow(db, generation_model)
+        if workflow_error:
+            return error_response(
+                message=workflow_error,
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
+
         # Serialize submissions for this user, then count unfinished tasks in
         # the same transaction. This prevents parallel requests from all
         # observing a free slot and exceeding the configured concurrency cap.
@@ -487,7 +516,7 @@ async def create_generation(
             prompt_id=str(uuid.uuid4()), # Always generate a fresh prompt_id for new works
             model_key=generation_model.model_key,
             model_name=generation_model.name,
-            params=sanitized_params,
+            params={**sanitized_params, "_charged_credits": model_cost},
             status=WorkStatus.GENERATING,
             is_shared=False,  # Default to private
             share_status=None,  # Default to None (private)
@@ -604,13 +633,7 @@ async def create_generation(
         
         # log_generation_start moved after actual API call success
         
-        # Only workflow mode is supported
-        if not generation_model.workflow_id:
-            return error_response(
-                message="Model must use a workflow. This model has no workflow configured.",
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        
+        # Workflow configuration has already been verified before charging.
         # Prepare user input for workflow
         user_input = {
             "prompt": prompt_value,
@@ -733,9 +756,9 @@ async def get_generation_status(
                 status_code=status.HTTP_403_FORBIDDEN
             )
         
-        # Timeout check: if work has been GENERATING for too long (e.g., 10 minutes), mark as failed and refund
+        # Configurable safety timeout (default 60 minutes); model durations vary by provider.
         if work.status == WorkStatus.GENERATING and work.created_at:
-            timeout_threshold_minutes = 10
+            timeout_threshold_minutes = max(10, env_limit("GENERATION_TIMEOUT_MINUTES", 60))
             timeout_threshold = timedelta(minutes=timeout_threshold_minutes)
             elapsed = datetime.now(timezone.utc) - work.created_at
             if elapsed > timeout_threshold:

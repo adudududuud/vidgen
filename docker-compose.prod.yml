@@ -81,6 +81,7 @@ services:
       R2_PUBLIC_DOMAIN: ${R2_PUBLIC_DOMAIN:-}
       MOCK_AI_GENERATION: "false"
       GENERATION_MAX_ACTIVE_TASKS: ${GENERATION_MAX_ACTIVE_TASKS:-3}
+      GENERATION_TIMEOUT_MINUTES: ${GENERATION_TIMEOUT_MINUTES:-60}
     depends_on:
       db:
         condition: service_healthy

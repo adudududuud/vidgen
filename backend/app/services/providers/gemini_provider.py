@@ -1,10 +1,13 @@
 """Gemini provider for workflow: sync API adapted to async provider interface via result cache."""
 import uuid
+import os
 from typing import Optional, Dict, Any
 
 from .base import BaseProvider
 from ...utils.logger import logger
 from ...services.gemini_service import get_gemini_service
+from ...utils.internal_webhook import post_signed_generation_callback
+from ...utils.redis_cache import get_json, set_json
 
 
 class GeminiProvider(BaseProvider):
@@ -19,6 +22,23 @@ class GeminiProvider(BaseProvider):
 
     def _synthetic_id(self) -> str:
         return f"gemini_{uuid.uuid4().hex}"
+
+    def _store_result(self, prediction_id: str, result: Dict[str, Any]) -> None:
+        # Celery and the API often run in different processes. Redis keeps
+        # results visible across both rather than only in worker memory.
+        key = f"gemini:workflow-result:{prediction_id}"
+        if set_json(key, result, ttl_seconds=3600):
+            return
+        if os.getenv("ENVIRONMENT", "development").lower() == "production":
+            raise RuntimeError("Redis is required for Gemini workflow results in production")
+        self._result_cache[prediction_id] = result
+
+    def _load_result(self, prediction_id: str) -> Optional[Dict[str, Any]]:
+        key = f"gemini:workflow-result:{prediction_id}"
+        result = get_json(key)
+        if result is not None:
+            return result
+        return self._result_cache.get(prediction_id)
 
     async def create_generation(
         self,
@@ -43,7 +63,7 @@ class GeminiProvider(BaseProvider):
                 "file_url": None,
                 "text": text,
             }
-            self._result_cache[synthetic_id] = result
+            self._store_result(synthetic_id, result)
             
             # Trigger the webhook immediately but synchronously to ensure it happens
             if webhook_url:
@@ -56,7 +76,7 @@ class GeminiProvider(BaseProvider):
                     await asyncio.sleep(0.1)
                     async with httpx.AsyncClient() as client:
                         logger.info(f"Gemini triggering direct webhook for work {work_id}")
-                        await client.post(webhook_url, json={
+                        await post_signed_generation_callback(client, webhook_url, work_id, {
                             "status": "succeeded",
                             "output": text,
                             "id": synthetic_id
@@ -72,13 +92,13 @@ class GeminiProvider(BaseProvider):
                 "file_url": None,
                 "text": None,
             }
-            self._result_cache[synthetic_id] = result
+            self._store_result(synthetic_id, result)
             
             if webhook_url:
                 import httpx
                 try:
                     async with httpx.AsyncClient() as client:
-                        await client.post(webhook_url, json={
+                        await post_signed_generation_callback(client, webhook_url, work_id, {
                             "status": "failed",
                             "error": str(e),
                             "id": synthetic_id
@@ -95,7 +115,7 @@ class GeminiProvider(BaseProvider):
         """Return cached result for synthetic task ID; normalize to provider contract."""
         if not provider_task_id.startswith("gemini_"):
             return {"status": "failed", "error": "Invalid Gemini task ID"}
-        result = self._result_cache.pop(provider_task_id, None)
+        result = self._load_result(provider_task_id)
         if result is None:
             return {"status": "processing"}
         # Normalize: workflow expects status in ("success", "failed", "processing") and optional file_url, text

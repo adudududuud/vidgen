@@ -8,6 +8,7 @@ from typing import Optional, Dict, Any, List
 from .base import BaseProvider
 from ...utils.logger import logger
 from ...utils.config import get_provider_api_key, get_system_config
+from ...utils.internal_webhook import post_signed_generation_callback
 
 class A2EProvider(BaseProvider):
     def __init__(self):
@@ -84,7 +85,7 @@ class A2EProvider(BaseProvider):
                     "id": f"a2e_mock_{work_id}"
                 }
                 async with httpx.AsyncClient() as client:
-                    await client.post(webhook_url, json=payload)
+                    await post_signed_generation_callback(client, webhook_url, work_id, payload)
                 return
 
             # 1. Submit task
@@ -140,13 +141,13 @@ class A2EProvider(BaseProvider):
                     "output": output_url,
                     "id": external_id
                 }
-                await client.post(webhook_url, json=payload)
+                await post_signed_generation_callback(client, webhook_url, work_id, payload)
 
         except Exception as e:
             logger.error(f"A2E flow failed for work {work_id}: {str(e)}")
             try:
                 async with httpx.AsyncClient() as client:
-                    await client.post(webhook_url, json={
+                    await post_signed_generation_callback(client, webhook_url, work_id, {
                         "status": "failed",
                         "error": str(e)
                     })
