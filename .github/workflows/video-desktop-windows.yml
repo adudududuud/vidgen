@@ -1,0 +1,57 @@
+name: Build Windows Video Desktop Installer
+
+on:
+  push:
+    branches: [video-desktop-v1.0]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/video-desktop-windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Setup Node.js runtime for yt-dlp EJS
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and test Windows EXE installer
+        shell: pwsh
+        run: ./desktop/build_installer.ps1
+      - name: Probe user-provided YouTube URL (metadata only)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          python -c "from desktop.core import probe_metadata; print(probe_metadata('https://youtu.be/ixw8pLpXtYs'))"
+      - name: Verify EXE output and checksum
+        shell: pwsh
+        run: |
+          $setup = 'dist/installer/YingSuVideo-Setup-v1.0.exe'
+          if (!(Test-Path $setup)) { throw 'Installer missing' }
+          Get-Item $setup | Select-Object FullName,Length
+          Get-FileHash $setup -Algorithm SHA256 | Format-List
+      - name: Upload installable EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: YingSuVideo-Windows-Setup-v1.0
+          path: dist/installer/YingSuVideo-Setup-v1.0.exe
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload portable EXE folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: YingSuVideo-Windows-Portable-v1.0
+          path: dist/YingSuVideo/
+          retention-days: 30

@@ -1,37 +1,60 @@
-# 影速 Video SaaS — V0.3 工程包
+# 影速 Windows 视频下载器 V1.0
 
-基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的简体中文视频素材处理 SaaS MVP。版本分别保存在 `video-saas-v0.1`、`video-saas-v0.2`、`video-saas-v0.3` 分支，不修改 `main` 分支。
+> 这是 **Windows 桌面软件**，不是 SaaS。不会启动网页、FastAPI 或服务器，不需要账号、Google OAuth 或广告。
 
-## 当前版本 V0.3
+## 适合用户
 
-- 可选 Google OpenID Connect 登录；未配置凭据时默认关闭。
-- 登录用户可以查看自己的最近任务、取消/重试自己的任务、下载自己的完成文件。
-- 登录用户按账号计算每日额度；匿名用户按 IP 摘要计算每日额度。
-- 管理后台增加 Google 用户列表、账号启用/停用。
-- 保留 V0.2 的任务取消/重试、状态筛选、来源链接搜索、分页与 CSV 导出。
-- 自动迁移 V0.2 SQLite 数据库。
+- Windows 10/11 64 位
+- 双击 `YingSuVideo-Setup-v1.0.exe` 安装
+- 打开 **影速视频下载器**，粘贴有权使用的视频链接，选择保存位置和格式
+- 支持 YouTube、抖音白名单 HTTPS 地址；是否成功取决于视频权限、网络环境及平台规则
 
-## 下载与源码
+## 最新版入口
 
-- 完整工程 ZIP：`video-saas-MVP-v0.3.zip`
-- 源码目录：`video-saas/`
-- 安装说明：`video-saas/README.md`
-- 更新日志：`video-saas/CHANGELOG.md`
+- 源码位置：`desktop/`
+- 构建脚本：`desktop/build_installer.ps1`
+- GitHub Actions：`Actions > Build Windows Video Desktop Installer`
+- 完成构建后在该运行页面的 **Artifacts** 下载 `YingSuVideo-Windows-Setup-v1.0`，解压得到安装程序 `.exe`
+- 如果 Action 还没成功，请勿将仓库源码 ZIP 误认为 Windows EXE。
 
-## Windows 安装
+## 试验地址
 
-1. 下载并解压 ZIP。
-2. 进入 `video-saas` 文件夹。
-3. 双击 `install.cmd`，按提示完成安装。
-4. 访问 `http://127.0.0.1:8000`；管理后台访问 `http://127.0.0.1:8000/admin`。
+`https://youtu.be/ixw8pLpXtYs`
 
-## Google 登录启用
+程序有“填写测试链接”及“检测链接（不下载）”按钮。检测只读取媒体元信息，**不等于证明真实下载成功**。只有确认拥有必要权利/授权时才执行实际下载。
 
-请先在 Google Cloud Console 创建 OAuth 2.0 Web Client，并把 `https://你的域名/auth/google/callback` 加入授权重定向 URI。随后在服务器 `.env` 配置 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`GOOGLE_REDIRECT_URI` 与 `SITE_URL`，再重启服务。不要把真实密钥提交到 GitHub。
+## 软件功能
 
-## 重要说明
+1. 简体中文桌面窗口、粘贴链接
+2. 一键检测链接（无媒体下载）
+3. 下载为 MP4 720p、高清 MP4、最佳原始格式或 MP3
+4. 选择 Windows 保存目录、下载进度、取消、打开文件夹
+5. 临时任务目录隔离、避免覆盖同名文件
+6. 打包 Node.js 22+、FFmpeg、yt-dlp 与 yt-dlp-ejs，不要求用户自行安装 Python 或 Node
 
-- 仅处理用户拥有权利、获得授权或依法/依平台规则允许下载的内容。
-- AdSense 默认关闭；Google 登录、AdSense 审核与收费账户均需运营者自行配置。
-- 23 项自动化测试通过；真实 Google OAuth 回调、真实视频下载、Windows D 盘安装及云服务器部署仍需实际验收。
-- 这是一套持续开发中的 MVP，不是完成生产安全审计的正式商业服务。
+**注意：** MP4 720p 模式优先使用单文件流以减少合并失败，视频真实分辨率取决于源站的可用格式。选择 MP3 时需要音视频转码。部分 YouTube 视频需要登录、地区授权或无公开可提取格式，工具不绕过 DRM 或平台访问控制。
+
+## 开发和本地测试
+
+Windows 上先安装 Python 3.12、Node.js 22，随后：
+
+```powershell
+cd <克隆仓库的目录>
+py -3.12 -m pip install -r desktop\requirements.txt
+py -3.12 -m pytest -q desktop\tests
+py -3.12 -m desktop.gui
+```
+
+完整 EXE 安装程序必须在 Windows 上构建：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\desktop\build_installer.ps1
+```
+
+输出在 `dist\installer\YingSuVideo-Setup-v1.0.exe`。CI 自动运行测试并在成功后上传安装包。
+
+## 构建限制与开源组件
+
+使用 yt-dlp（Unlicense）、Node.js、FFmpeg（可能涉及 LGPL/GPL 的二进制构建）、imageio-ffmpeg、PyInstaller 和 Inno Setup。分发前请核查对应版本的许可证及第三方组件声明；商业签名证书不包含在此项目中，Windows SmartScreen 可能提示未知发行者。
+
+未经在 Windows 虚拟机/实体机启动安装包并完成真实链接下载验证前，本工程只能被视为“可构建桌面源码及 CI 工程”，不是已完成最终端到端验收的安装程序。
