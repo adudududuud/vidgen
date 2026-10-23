@@ -1,5 +1,5 @@
 #define AppName "影速视频下载器"
-#define AppVersion "1.0.0"
+#define AppVersion "1.1.0"
 #define AppExe "YingSuVideo.exe"
 
 [Setup]
@@ -9,7 +9,7 @@ AppVersion={#AppVersion}
 DefaultDirName={autopf}\YingSuVideo
 DefaultGroupName={#AppName}
 OutputDir=..\dist\installer
-OutputBaseFilename=YingSuVideo-Setup-v1.0
+OutputBaseFilename=YingSuVideo-Setup-v1.1
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

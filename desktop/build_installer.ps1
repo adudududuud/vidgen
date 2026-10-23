@@ -9,6 +9,8 @@ python -m pip install -r desktop\requirements.txt
 if ($LASTEXITCODE -ne 0) { throw 'pip install failed' }
 python -m pytest -q desktop\tests
 if ($LASTEXITCODE -ne 0) { throw 'Unit tests failed' }
+python -m desktop.gui --gui-self-test
+if ($LASTEXITCODE -ne 0) { throw 'GUI layout smoke test failed' }
 
 $bin = Join-Path $root 'desktop\build-tools\bin'
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
@@ -46,7 +48,7 @@ if (-not (Test-Path $iscc)) {
 }
 & $iscc 'desktop\installer.iss'
 if ($LASTEXITCODE -ne 0) { throw 'Inno Setup packaging failed' }
-$setup = Join-Path $root 'dist\installer\YingSuVideo-Setup-v1.0.exe'
+$setup = Join-Path $root 'dist\installer\YingSuVideo-Setup-v1.1.exe'
 if (-not (Test-Path $setup)) { throw "No installer was generated: $setup" }
 Write-Host "Windows installer created: $setup"
 Get-FileHash -Algorithm SHA256 $setup

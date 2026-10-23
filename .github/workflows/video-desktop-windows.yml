@@ -2,7 +2,7 @@ name: Build Windows Video Desktop Installer
 
 on:
   push:
-    branches: [video-desktop-v1.0]
+    branches: [video-desktop-v1.1]
     paths:
       - 'desktop/**'
       - '.github/workflows/video-desktop-windows.yml'
@@ -38,20 +38,20 @@ jobs:
       - name: Verify EXE output and checksum
         shell: pwsh
         run: |
-          $setup = 'dist/installer/YingSuVideo-Setup-v1.0.exe'
+          $setup = 'dist/installer/YingSuVideo-Setup-v1.1.exe'
           if (!(Test-Path $setup)) { throw 'Installer missing' }
           Get-Item $setup | Select-Object FullName,Length
           Get-FileHash $setup -Algorithm SHA256 | Format-List
       - name: Upload installable EXE
         uses: actions/upload-artifact@v4
         with:
-          name: YingSuVideo-Windows-Setup-v1.0
-          path: dist/installer/YingSuVideo-Setup-v1.0.exe
+          name: YingSuVideo-Windows-Setup-v1.1
+          path: dist/installer/YingSuVideo-Setup-v1.1.exe
           if-no-files-found: error
           retention-days: 30
       - name: Upload portable EXE folder
         uses: actions/upload-artifact@v4
         with:
-          name: YingSuVideo-Windows-Portable-v1.0
+          name: YingSuVideo-Windows-Portable-v1.1
           path: dist/YingSuVideo/
           retention-days: 30

@@ -1,60 +1,41 @@
-# 影速 Windows 视频下载器 V1.0
+# 影速 Windows 视频下载器 V1.1
 
-> 这是 **Windows 桌面软件**，不是 SaaS。不会启动网页、FastAPI 或服务器，不需要账号、Google OAuth 或广告。
+Windows 10/11 x64 本地程序，不是 SaaS，不需要登录或服务器。
 
-## 适合用户
+## 这次修复
 
-- Windows 10/11 64 位
-- 双击 `YingSuVideo-Setup-v1.0.exe` 安装
-- 打开 **影速视频下载器**，粘贴有权使用的视频链接，选择保存位置和格式
-- 支持 YouTube、抖音白名单 HTTPS 地址；是否成功取决于视频权限、网络环境及平台规则
+- Windows DPI 感知在 Tk 启动前开启，改善 125%/150%/200% 缩放下的字形模糊。
+- 界面采用可滚动自适应布局：底部任务状态不再被硬性裁切，窄窗口按钮分两排等宽显示。
+- 优化下载格式下拉框清晰度，统一输入框与按钮高度。
+- 新增智能兼容下载默认选项；只有格式不可用时才自动回退重试一次。
+- 403/429/网络超时、来源站点登录与人机验证、DRM 等情况给出可理解的诊断提示，不绕过平台访问控制。
 
-## 最新版入口
+## Windows 安装包（由 GitHub Actions 自动构建）
 
-- 源码位置：`desktop/`
-- 构建脚本：`desktop/build_installer.ps1`
-- GitHub Actions：`Actions > Build Windows Video Desktop Installer`
-- 完成构建后在该运行页面的 **Artifacts** 下载 `YingSuVideo-Windows-Setup-v1.0`，解压得到安装程序 `.exe`
-- 如果 Action 还没成功，请勿将仓库源码 ZIP 误认为 Windows EXE。
+1. 打开 https://github.com/adudududuud/vidgen/actions/workflows/video-desktop-windows.yml
+2. 选择 `video-desktop-v1.1` 分支成功的运行，在 Artifacts 下载 `YingSuVideo-Windows-Setup-v1.1`。
+3. 解压得到 `YingSuVideo-Setup-v1.1.exe`，双击安装，可以选择 `D:\AI\Youtube-抖音\video` 目录。
+4. 用 `https://youtu.be/ixw8pLpXtYs` 先点「检测链接」，仅在有权下载时尝试下载。
 
-## 试验地址
+只有 Actions 全部成功后才有有效 EXE；源码 ZIP 不是安装程序。
 
-`https://youtu.be/ixw8pLpXtYs`
-
-程序有“填写测试链接”及“检测链接（不下载）”按钮。检测只读取媒体元信息，**不等于证明真实下载成功**。只有确认拥有必要权利/授权时才执行实际下载。
-
-## 软件功能
-
-1. 简体中文桌面窗口、粘贴链接
-2. 一键检测链接（无媒体下载）
-3. 下载为 MP4 720p、高清 MP4、最佳原始格式或 MP3
-4. 选择 Windows 保存目录、下载进度、取消、打开文件夹
-5. 临时任务目录隔离、避免覆盖同名文件
-6. 打包 Node.js 22+、FFmpeg、yt-dlp 与 yt-dlp-ejs，不要求用户自行安装 Python 或 Node
-
-**注意：** MP4 720p 模式优先使用单文件流以减少合并失败，视频真实分辨率取决于源站的可用格式。选择 MP3 时需要音视频转码。部分 YouTube 视频需要登录、地区授权或无公开可提取格式，工具不绕过 DRM 或平台访问控制。
-
-## 开发和本地测试
-
-Windows 上先安装 Python 3.12、Node.js 22，随后：
+## 本地开发测试
 
 ```powershell
-cd <克隆仓库的目录>
 py -3.12 -m pip install -r desktop\requirements.txt
 py -3.12 -m pytest -q desktop\tests
+py -3.12 -m desktop.gui --gui-self-test
 py -3.12 -m desktop.gui
-```
-
-完整 EXE 安装程序必须在 Windows 上构建：
-
-```powershell
 powershell -ExecutionPolicy Bypass -File .\desktop\build_installer.ps1
 ```
 
-输出在 `dist\installer\YingSuVideo-Setup-v1.0.exe`。CI 自动运行测试并在成功后上传安装包。
+源代码在 `desktop/`。打包使用 PyInstaller + Inno Setup（含 yt-dlp / Node.js / FFmpeg）。
 
-## 构建限制与开源组件
+## 注意
 
-使用 yt-dlp（Unlicense）、Node.js、FFmpeg（可能涉及 LGPL/GPL 的二进制构建）、imageio-ffmpeg、PyInstaller 和 Inno Setup。分发前请核查对应版本的许可证及第三方组件声明；商业签名证书不包含在此项目中，Windows SmartScreen 可能提示未知发行者。
-
-未经在 Windows 虚拟机/实体机启动安装包并完成真实链接下载验证前，本工程只能被视为“可构建桌面源码及 CI 工程”，不是已完成最终端到端验收的安装程序。
+- 本地 Python 测试和 GUI 布局冒烟测试通过并不代表 Windows DPI 或视频真实性能已由用户电脑验证。
+- 目标视频可能因登录/机器人验证或地区权限无法下载；不支持绕过登录、DRM、平台限制。
+- 格式回退时可能输出真正可用的 WebM/MKV，而非强制标称 MP4。
+- 软件仅供拥有相应权利且来源平台允许下载的素材。
+- 安装包未经商业签名，Windows 可能提示未知发行者。
+- V1.0 与之前 SaaS 代码不变，V1.1 为独立分支。
