@@ -1,0 +1,42 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - app_data:/srv/video-saas/data
+      - app_downloads:/srv/video-saas/downloads
+    restart: unless-stopped
+    pids_limit: 128
+    mem_limit: 1g
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 8s
+      retries: 3
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["production"]
+    environment:
+      DOMAIN: ${DOMAIN:?Set_DOMAIN_in_dotenv}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  app_data:
+  app_downloads:
+  caddy_data:
+  caddy_config:
