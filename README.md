@@ -1,28 +1,32 @@
-# 影速 Video SaaS — V0.1 工程包
+# 影速 Video SaaS — V0.2 工程包
 
-这是基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的中文视频处理 SaaS MVP 工程包，作为**独立备份分支**存放，不影响 `vidgen` 主分支。
+基于 [yt-dlp](https://github.com/yt-dlp/yt-dlp) 的简体中文视频素材处理 SaaS MVP。当前版本保留在 `video-saas-v0.2` 分支，不修改 `main` 分支。
 
-## 下载
+## 下载与源码
 
-点击此目录中的 **video-saas-MVP-v0.1.zip**，然后点击 **Download raw file** 下载完整工程包。
+- 完整工程 ZIP：`video-saas-MVP-v0.2.zip`
+- 源码目录：`video-saas/`
+- 详细安装、配置和部署说明：`video-saas/README.md`
+- 更新记录：`video-saas/CHANGELOG.md`
 
-原始压缩包校验值：
-```
-SHA-256  8414e8e4ace1baf89f5129b0cea678e391b1fcef02354460419199ebb3c27fd3
-```
+## V0.2 新功能
 
-## Windows 本地安装
+- 取消排队/运行任务，重试失败或已取消的任务。
+- 管理后台按任务状态筛选、按来源 URL 搜索、分页、CSV 导出。
+- 管理统计增加已取消任务数。
+- SQLite V0.1 数据库自动向后兼容迁移。
+- 18 项自动化测试通过。
 
-1. 下载并解压 ZIP 到 `D:\AI\Youtube-抖音\video\`
-2. 进入 `video-saas` 文件夹
-3. 运行 `install.cmd`（需要 Python 和 Git，建议 Node.js、FFmpeg）
-4. 启动后访问 `http://127.0.0.1:8000`，后台访问 `http://127.0.0.1:8000/admin`
+## Windows 安装
 
-请先阅读压缩包中的 `README.md` 与 `docs/上线验收清单.md`。
+1. 下载并解压 ZIP。
+2. 进入 `video-saas` 文件夹。
+3. 双击 `install.cmd`，按提示完成安装。
+4. 访问 `http://127.0.0.1:8000`；管理后台 `http://127.0.0.1:8000/admin`。
 
-## 注意
+## 重要说明
 
-- 这是 **V0.1 MVP 源码包**，并非经生产安全审计的商业成品。
-- 真实视频下载、Docker 镜像和云服务器部署还需在具备相应网络与环境的机器上实测。
-- 下载应限定为拥有权利或许可的内容，遵守平台服务条款、版权规定及 Google 广告政策。
-- 本仓库不包含 yt-dlp 上游源码；Windows 安装脚本在具备网络时拉取它。
+- 仅处理用户拥有权利、获得授权或依法/依平台规则允许下载的内容。
+- AdSense 默认关闭，必须自行完成 Google 账号配置、网站审核和政策核查。
+- 当前环境只完成模拟任务自动化测试；真实视频下载、Windows D 盘安装、Docker 镜像和云服务器部署仍需实际验收。
+- 这是一套持续开发中的 MVP，不是完成生产安全审计的正式商业服务。

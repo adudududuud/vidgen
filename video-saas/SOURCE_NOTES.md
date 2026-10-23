@@ -1,4 +1,6 @@
-# 源码核查与限制
+# 源码核查与版本验证记录
+
+## 上游项目
 
 2026-10-23 通过 GitHub 连接核查了官方仓库 `yt-dlp/yt-dlp`：
 
@@ -8,6 +10,14 @@
 - 官方嵌入接口：https://github.com/yt-dlp/yt-dlp?tab=readme-ov-file#embedding-yt-dlp
 - 新版 YouTube/EJS 依赖：https://github.com/yt-dlp/yt-dlp/wiki/EJS
 
-当前打包环境无法解析 github.com，所以**压缩包不包含 yt-dlp 原仓库源码**。`install.cmd` / `scripts/install_windows.ps1` 在您的 Windows 电脑上执行 `git clone` 到指定 D 盘目录。Docker 使用 PyPI 发布的 `yt-dlp[default]` 与 Node.js 22，不以 GitHub 源码副本构建。
+## 本地环境边界
 
-本轮完成 15 个离线自动化测试，另完成独立本机 HTTP 首页/管理/健康接口烟雾测试；未测试任何真实媒体抓取、Windows D 盘安装或云服务器上线。
+本轮工作环境未进行真实媒体抓取、Windows D 盘安装或云服务器上线。项目的 Windows 安装脚本会在目标电脑具备网络时拉取上游 yt-dlp；Docker 镜像使用 PyPI 发布的 `yt-dlp[default]` 与 Node.js 22。
+
+## V0.2 更新（2026-10-23）
+
+- 新增可取消任务状态机与失败/取消任务重试接口。
+- 新增管理后台按状态/来源 URL 搜索、分页、CSV 导出。
+- 数据库初始化会为 V0.1 数据库补加 `cancel_requested` 字段。
+- 18 项 pytest 自动化测试通过，`compileall` 通过，前端 JavaScript `node --check` 通过。
+- 测试任务使用模拟文件，不代表真实视频源下载已通过。

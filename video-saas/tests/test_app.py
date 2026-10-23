@@ -35,7 +35,7 @@ def start(client, url='https://www.youtube.com/watch?v=demo', confirmed=True):
 def test_homepage_and_config(site):
     assert site.get('/').status_code == 200
     assert '视频素材' in site.get('/').text
-    assert site.get('/healthz').json() == {'ok': True}
+    assert site.get('/healthz').json() == {'ok': True, 'version': '0.2.0'}
     cfg = site.get('/api/config').json()
     assert cfg['daily_limit'] == 2
     assert cfg['adsense_enabled'] is False
@@ -99,3 +99,64 @@ def test_admin_auth_and_deletion(site):
     assert site.get('/api/admin/summary').json()['total'] == 0
     assert site.post('/api/admin/logout').status_code == 200
     assert site.get('/api/admin/summary').status_code == 401
+
+
+def test_cancel_queued_and_signal_running(site):
+    import uuid
+    from app import db, security
+
+    queued_id = str(uuid.uuid4())
+    queued_secret = security.new_token()
+    assert db.create(queued_id, security.token_hash(queued_secret), 'https://www.youtube.com/watch?v=queued', security.fingerprint('192.0.2.10'))
+    cancelled = site.post(f'/api/jobs/{queued_id}/cancel', headers={'X-Job-Token': queued_secret})
+    assert cancelled.status_code == 200
+    assert cancelled.json()['status'] == 'cancelled'
+    assert site.get(f'/api/jobs/{queued_id}', headers={'X-Job-Token': queued_secret}).json()['status'] == 'cancelled'
+    assert db.start_job(queued_id) is False  # a cancelled queued job cannot be claimed by a worker
+    assert db.get(queued_id)['status'] == 'cancelled'
+
+    running_id = str(uuid.uuid4())
+    running_secret = security.new_token()
+    assert db.create(running_id, security.token_hash(running_secret), 'https://www.youtube.com/watch?v=running', security.fingerprint('192.0.2.11'))
+    assert db.start_job(running_id)
+    stopping = site.post(f'/api/jobs/{running_id}/cancel', headers={'X-Job-Token': running_secret})
+    assert stopping.status_code == 200
+    assert stopping.json()['status'] == 'cancelling'
+    assert db.is_cancel_requested(running_id) is True
+
+
+def test_retry_requires_rights_and_only_retries_failed_jobs(site):
+    import uuid
+    from app import db, security
+
+    job_id = str(uuid.uuid4())
+    secret = security.new_token()
+    assert db.create(job_id, security.token_hash(secret), 'https://www.youtube.com/watch?v=retry', security.fingerprint('192.0.2.12'))
+    db.update(job_id, status='error', error='simulated failure')
+    headers = {'X-Job-Token': secret}
+    assert site.post(f'/api/jobs/{job_id}/retry', headers=headers, json={'confirmed_rights': False}).status_code == 422
+    retried = site.post(f'/api/jobs/{job_id}/retry', headers=headers, json={'confirmed_rights': True})
+    assert retried.status_code == 202
+    assert retried.json()['job_id'] != job_id
+    assert retried.json()['access_token']
+    assert site.post(f'/api/jobs/{retried.json()["job_id"]}/retry', headers={'X-Job-Token': retried.json()['access_token']}, json={'confirmed_rights': True}).status_code == 409
+
+
+def test_admin_filter_and_csv_export(site):
+    import uuid
+    from app import db, security
+
+    job_id = str(uuid.uuid4())
+    secret = security.new_token()
+    assert db.create(job_id, security.token_hash(secret), 'https://www.youtube.com/watch?v=csv-test', security.fingerprint('192.0.2.13'))
+    db.update(job_id, status='cancelled', error='user cancelled')
+    assert site.post('/api/admin/login', json={'password': 'correct-horse-battery-test'}).status_code == 200
+    result = site.get('/api/admin/jobs?status=cancelled&q=csv-test')
+    assert result.status_code == 200
+    assert result.json()['total'] == 1
+    assert result.json()['jobs'][0]['id'] == job_id
+    export = site.get('/api/admin/jobs/export.csv?status=cancelled')
+    assert export.status_code == 200
+    assert 'text/csv' in export.headers['content-type']
+    assert 'csv-test' in export.text
+    assert site.get('/api/admin/summary').json()['cancelled'] == 1

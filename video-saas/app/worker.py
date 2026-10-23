@@ -16,7 +16,11 @@ class UserDownloadError(Exception):
     pass
 
 
-def download_media(url: str, task_dir: Path, progress_callback):
+class UserCancelledError(Exception):
+    pass
+
+
+def download_media(url: str, task_dir: Path, progress_callback, cancel_check=None):
     validate_url(url, resolve_dns=True)
     try:
         import yt_dlp
@@ -29,6 +33,8 @@ def download_media(url: str, task_dir: Path, progress_callback):
     last_report = [-1, 0.0]
 
     def progress(info):
+        if cancel_check and cancel_check():
+            raise UserCancelledError('任务已取消')
         if time.monotonic() - started > 10 * 60:
             raise UserDownloadError('任务超时，请重新尝试')
         downloaded = info.get('downloaded_bytes') or 0
@@ -85,17 +91,26 @@ def download_media(url: str, task_dir: Path, progress_callback):
 
 def execute_job(job_id):
     record = db.get(job_id)
-    if not record:
+    if not record or not db.start_job(job_id):
         return
     cfg = get_settings()
     target = cfg.download_dir / job_id
-    db.update(job_id, status='running', progress=1)
     try:
-        media = download_media(record['source_url'], target, lambda n: db.update(job_id, progress=n))
+        media = download_media(record['source_url'], target, lambda n: db.update(job_id, progress=n),
+                               cancel_check=lambda: db.is_cancel_requested(job_id))
+        if db.is_cancel_requested(job_id):
+            raise UserCancelledError('任务已取消')
         if not media.is_file() or media.resolve().parent != target.resolve():
             raise UserDownloadError('文件路径校验失败')
         db.update(job_id, status='done', progress=100, filename=media.name)
+    except UserCancelledError:
+        db.update(job_id, status='cancelled', error='任务已取消')
+        shutil.rmtree(target, ignore_errors=True)
     except Exception as exc:
+        if db.is_cancel_requested(job_id):
+            db.update(job_id, status='cancelled', error='任务已取消')
+            shutil.rmtree(target, ignore_errors=True)
+            return
         # Avoid showing internal full tracebacks to end users.
         safe_message = str(exc)
         if len(safe_message) > 160:
