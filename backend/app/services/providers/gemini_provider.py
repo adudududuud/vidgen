@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any
 from .base import BaseProvider
 from ...utils.logger import logger
 from ...services.gemini_service import get_gemini_service
+from ...utils.internal_webhook import post_signed_generation_callback
 
 
 class GeminiProvider(BaseProvider):
@@ -56,7 +57,7 @@ class GeminiProvider(BaseProvider):
                     await asyncio.sleep(0.1)
                     async with httpx.AsyncClient() as client:
                         logger.info(f"Gemini triggering direct webhook for work {work_id}")
-                        await client.post(webhook_url, json={
+                        await post_signed_generation_callback(client, webhook_url, work_id, {
                             "status": "succeeded",
                             "output": text,
                             "id": synthetic_id
@@ -78,7 +79,7 @@ class GeminiProvider(BaseProvider):
                 import httpx
                 try:
                     async with httpx.AsyncClient() as client:
-                        await client.post(webhook_url, json={
+                        await post_signed_generation_callback(client, webhook_url, work_id, {
                             "status": "failed",
                             "error": str(e),
                             "id": synthetic_id

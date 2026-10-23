@@ -32,6 +32,7 @@ from ..tasks.workflow_tasks import execute_workflow_task
 from ..services.providers.factory import ProviderFactory
 from ..services.realtime import publish_user_event
 from ..utils.rate_limit import enforce_rate_limit, env_limit
+from ..utils.internal_webhook import post_signed_generation_callback
 
 load_dotenv()
 
@@ -62,9 +63,8 @@ async def simulate_webhook_call(work_id: int):
         
         try:
             # Call our own webhook endpoint
-            response = await client.post(
-                f"{BACKEND_URL}/api/webhook/replicate/{work_id}",
-                json=payload
+            response = await post_signed_generation_callback(
+                client, f"{BACKEND_URL}/api/webhook/replicate/{work_id}", work_id, payload
             )
             logger.info(f"Simulated webhook for work {work_id}: {response.status_code}")
         except Exception as e:

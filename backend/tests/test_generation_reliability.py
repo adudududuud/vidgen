@@ -1,5 +1,6 @@
 """Regression tests for safe generation billing and refund accounting."""
 import unittest
+import os
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -7,6 +8,7 @@ from app.models.credit_record import CreditRecord, CreditType
 from app.models.work import Work, WorkStatus
 from app.routes.generation import _get_ready_workflow
 from app.services.work_failed_service import mark_work_failed
+from app.utils.internal_webhook import sign_generation_callback, verify_generation_callback, post_signed_generation_callback
 
 
 class WorkflowBillingGateTests(unittest.TestCase):
@@ -85,6 +87,34 @@ class RefundLedgerTests(unittest.TestCase):
         self.work.status = WorkStatus.SUCCESS
         mark_work_failed(self.db, self.work, "Late callback")
         add_credits.assert_not_called()
+
+
+
+class SignedGenerationCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_body_work_id_and_node_id_are_authenticated(self):
+        with patch.dict(os.environ, {"VIDGEN_WEBHOOK_SECRET": "v0.1-test-only-secret"}):
+            body = b'{"status":"succeeded","id":"task1"}'
+            signature = sign_generation_callback(81, body, "node-1")
+            self.assertTrue(verify_generation_callback(81, body, signature, "node-1"))
+            self.assertFalse(verify_generation_callback(82, body, signature, "node-1"))
+            self.assertFalse(verify_generation_callback(81, body, signature, "node-2"))
+            self.assertFalse(verify_generation_callback(81, b'{"status":"failed"}', signature, "node-1"))
+            self.assertFalse(verify_generation_callback(81, body, None, "node-1"))
+
+    async def test_signed_sender_matches_receiver(self):
+        with patch.dict(os.environ, {"VIDGEN_WEBHOOK_SECRET": "v0.1-test-only-secret"}):
+            client = MagicMock()
+            from unittest.mock import AsyncMock
+            client.post = AsyncMock()
+            url = "http://backend:8000/api/webhook/replicate/81?node_id=img"
+            await post_signed_generation_callback(
+                client, url, 81, {"status": "succeeded", "output": "测试"}
+            )
+            args, kwargs = client.post.await_args
+            self.assertEqual(args[0], url)
+            self.assertTrue(verify_generation_callback(
+                81, kwargs["content"], kwargs["headers"]["X-VidGen-Signature"], "img"
+            ))
 
 
 if __name__ == "__main__":

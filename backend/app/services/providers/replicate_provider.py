@@ -6,6 +6,7 @@ from .base import BaseProvider
 from ...models.generation_config import get_model_config
 from ...utils.logger import logger
 from ...utils.config import get_provider_api_key
+from ...utils.internal_webhook import post_signed_generation_callback
 
 class ReplicateProvider(BaseProvider):
     def __init__(self):
@@ -35,7 +36,7 @@ class ReplicateProvider(BaseProvider):
             async def simulate_replicate():
                 await asyncio.sleep(3)
                 async with httpx.AsyncClient() as client:
-                    await client.post(webhook_url, json={
+                    await post_signed_generation_callback(client, webhook_url, work_id, {
                         "status": "succeeded",
                         "output": "https://picsum.photos/1024/1024",
                         "id": f"mock_{work_id}"

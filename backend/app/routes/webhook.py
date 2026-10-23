@@ -28,6 +28,7 @@ from ..models.notification import NotificationType
 from ..services.stripe_service import get_stripe_service
 from ..services.realtime import publish_user_event
 from ..utils.auth import decode_access_token
+from ..utils.internal_webhook import verify_generation_callback
 
 router = APIRouter()
 
@@ -335,12 +336,21 @@ async def replicate_webhook(
     When no workflow or no node_id: return 200 so callbacks do not retry.
     """
     try:
+        body = await request.body()
+        if not verify_generation_callback(
+            work_id, body, request.headers.get("x-vidgen-signature"),
+            request.query_params.get("node_id", ""),
+        ):
+            return error_response(
+                message="Invalid generation callback signature",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+            )
         payload = await request.json()
         work = db.query(Work).filter(Work.id == work_id).first()
         if not work:
             return error_response(message="Work not found", status_code=status.HTTP_404_NOT_FOUND)
 
-        if work.status in [WorkStatus.SUCCESS, WorkStatus.FAILED] and work.auto_moderated:
+        if work.status in [WorkStatus.SUCCESS, WorkStatus.FAILED]:
             return success_response(message=f"Work already processed with status: {work.status.value}")
 
         # Workflow: when Replicate calls with ?node_id=xxx (or final node without node_id), process and trigger next
@@ -422,6 +432,10 @@ async def _handle_workflow_node_webhook(
             logger.error(f"Node {node_id} not found in workflow {workflow.id}")
             return error_response(message="Node not found in workflow")
         
+        # Ignore retransmitted callbacks for an already completed node.
+        if (work.params or {}).get("_workflow_nodes", {}).get(node_id, {}).get("status") == "success":
+            return success_response(message="Workflow node already processed")
+
         # Get API to identify provider
         api_id = completed_node.get("api_id")
         api = db.query(APILibrary).filter(APILibrary.id == api_id).first()
