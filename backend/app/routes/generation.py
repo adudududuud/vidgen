@@ -756,9 +756,9 @@ async def get_generation_status(
                 status_code=status.HTTP_403_FORBIDDEN
             )
         
-        # Timeout check: if work has been GENERATING for too long (e.g., 10 minutes), mark as failed and refund
+        # Configurable safety timeout (default 60 minutes); model durations vary by provider.
         if work.status == WorkStatus.GENERATING and work.created_at:
-            timeout_threshold_minutes = 10
+            timeout_threshold_minutes = max(10, env_limit("GENERATION_TIMEOUT_MINUTES", 60))
             timeout_threshold = timedelta(minutes=timeout_threshold_minutes)
             elapsed = datetime.now(timezone.utc) - work.created_at
             if elapsed > timeout_threshold:

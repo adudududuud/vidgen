@@ -9,6 +9,7 @@ from app.models.work import Work, WorkStatus
 from app.routes.generation import _get_ready_workflow
 from app.services.work_failed_service import mark_work_failed
 from app.utils.internal_webhook import sign_generation_callback, verify_generation_callback, post_signed_generation_callback
+from app.services.providers.gemini_provider import GeminiProvider
 
 
 class WorkflowBillingGateTests(unittest.TestCase):
@@ -115,6 +116,35 @@ class SignedGenerationCallbackTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(verify_generation_callback(
                 81, kwargs["content"], kwargs["headers"]["X-VidGen-Signature"], "img"
             ))
+
+
+
+class GeminiWorkflowResultTests(unittest.TestCase):
+    @patch("app.services.providers.gemini_provider.set_json", return_value=True)
+    def test_result_is_written_to_shared_redis(self, set_json):
+        provider = GeminiProvider()
+        provider._store_result("gemini_123", {"status": "success", "text": "hello"})
+        set_json.assert_called_once_with(
+            "gemini:workflow-result:gemini_123",
+            {"status": "success", "text": "hello"},
+            ttl_seconds=3600,
+        )
+        self.assertEqual(provider._result_cache, {})
+
+    @patch("app.services.providers.gemini_provider.get_json")
+    def test_separate_api_process_reads_worker_result(self, get_json):
+        get_json.return_value = {"status": "success", "text": "shared"}
+        api_provider = GeminiProvider()
+        self.assertEqual(
+            api_provider._load_result("gemini_123"),
+            {"status": "success", "text": "shared"},
+        )
+
+    @patch("app.services.providers.gemini_provider.set_json", return_value=False)
+    def test_production_requires_shared_cache(self, _set_json):
+        with patch.dict(os.environ, {"ENVIRONMENT": "production"}):
+            with self.assertRaisesRegex(RuntimeError, "Redis is required"):
+                GeminiProvider()._store_result("gemini_123", {"status": "success"})
 
 
 if __name__ == "__main__":
