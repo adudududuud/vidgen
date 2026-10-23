@@ -35,7 +35,7 @@ def start(client, url='https://www.youtube.com/watch?v=demo', confirmed=True):
 def test_homepage_and_config(site):
     assert site.get('/').status_code == 200
     assert '视频素材' in site.get('/').text
-    assert site.get('/healthz').json() == {'ok': True, 'version': '0.2.0'}
+    assert site.get('/healthz').json() == {'ok': True, 'version': '0.3.0'}
     cfg = site.get('/api/config').json()
     assert cfg['daily_limit'] == 2
     assert cfg['adsense_enabled'] is False
@@ -160,3 +160,105 @@ def test_admin_filter_and_csv_export(site):
     assert 'text/csv' in export.headers['content-type']
     assert 'csv-test' in export.text
     assert site.get('/api/admin/summary').json()['cancelled'] == 1
+
+
+def test_google_oauth_disabled_by_default_and_me_requires_login(site):
+    cfg = site.get('/api/config').json()
+    assert cfg['version'] == '0.3.0'
+    assert cfg['google_oauth_enabled'] is False
+    me = site.get('/api/me')
+    assert me.status_code == 200
+    assert me.json()['authenticated'] is False
+    assert site.get('/auth/google').status_code == 503
+    assert site.get('/api/me/jobs').status_code == 401
+
+
+def test_google_user_storage_and_per_user_daily_quota(site):
+    import uuid
+    from app import db, security
+
+    user = db.upsert_google_user('google-sub-test', 'tester@example.com', 'Test User', '')
+    assert user['email'] == 'tester@example.com'
+    assert user['is_active'] == 1
+    iphash = security.fingerprint('192.0.2.44')
+    for n in range(2):
+        assert db.create(str(uuid.uuid4()), security.token_hash(security.new_token()),
+                         f'https://www.youtube.com/watch?v=user-{n}', iphash, user_id=user['id'])
+    assert db.create(str(uuid.uuid4()), security.token_hash(security.new_token()),
+                     'https://www.youtube.com/watch?v=user-over-limit', iphash, user_id=user['id']) is False
+    assert db.count_user_jobs(user['id']) == 2
+    assert db.list_user_jobs(user['id'])
+
+
+def test_admin_can_disable_google_user(site):
+    from app import db
+    user = db.upsert_google_user('google-sub-admin', 'member@example.com', 'Member', '')
+    assert site.post('/api/admin/login', json={'password': 'correct-horse-battery-test'}).status_code == 200
+    listing = site.get('/api/admin/users')
+    assert listing.status_code == 200
+    assert any(x['id'] == user['id'] for x in listing.json()['users'])
+    result = site.patch(f"/api/admin/users/{user['id']}", json={'is_active': False})
+    assert result.status_code == 200
+    assert db.get_user(user['id'])['is_active'] == 0
+    assert site.get('/api/admin/summary').json()['users'] == 1
+
+
+def test_v02_database_migrates_to_v03_user_schema(tmp_path, monkeypatch):
+    import sqlite3
+    from app import db
+
+    legacy_dir = tmp_path / 'legacy'
+    legacy_dir.mkdir()
+    monkeypatch.setenv('DATA_DIR', str(legacy_dir))
+    cx = sqlite3.connect(legacy_dir / 'jobs.sqlite3')
+    cx.execute('''CREATE TABLE jobs (
+        id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, source_url TEXT NOT NULL,
+        ip_hash TEXT NOT NULL, status TEXT NOT NULL, progress INTEGER DEFAULT 0,
+        filename TEXT, error TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
+        expires_at REAL NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0
+    )''')
+    cx.commit()
+    cx.close()
+    db.init_db()
+    cx = sqlite3.connect(legacy_dir / 'jobs.sqlite3')
+    columns = {r[1] for r in cx.execute('PRAGMA table_info(jobs)').fetchall()}
+    tables = {r[0] for r in cx.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    cx.close()
+    assert 'user_id' in columns
+    assert 'users' in tables
+
+
+def test_google_session_scopes_task_history_and_downloads(site, tmp_path, monkeypatch):
+    import base64
+    import json
+    import uuid
+    from itsdangerous import TimestampSigner
+    from app import db, security
+
+    own = db.upsert_google_user('google-sub-own', 'owner@example.com', 'Owner', '')
+    other = db.upsert_google_user('google-sub-other', 'other@example.com', 'Other', '')
+    own_id = str(uuid.uuid4())
+    other_id = str(uuid.uuid4())
+    own_token = security.new_token()
+    other_token = security.new_token()
+    iphash = security.fingerprint('192.0.2.50')
+    assert db.create(own_id, security.token_hash(own_token), 'https://www.youtube.com/watch?v=own', iphash, user_id=own['id'])
+    assert db.create(other_id, security.token_hash(other_token), 'https://www.youtube.com/watch?v=other', iphash, user_id=other['id'])
+    db.update(own_id, status='done', progress=100, filename='own.mp4')
+    db.update(other_id, status='done', progress=100, filename='other.mp4')
+    own_dir = tmp_path / 'downloads' / own_id
+    own_dir.mkdir(parents=True, exist_ok=True)
+    (own_dir / 'own.mp4').write_bytes(b'owned-video')
+
+    secret = 'test-secret-only-' * 5
+    payload = base64.b64encode(json.dumps({'user_id': own['id']}).encode('utf-8'))
+    cookie = TimestampSigner(secret).sign(payload).decode('utf-8')
+    site.cookies.set('session', cookie)
+
+    assert site.get('/api/me').json()['authenticated'] is True
+    history = site.get('/api/me/jobs').json()
+    assert history['total'] == 1
+    assert history['jobs'][0]['id'] == own_id
+    assert site.get(f'/api/jobs/{own_id}').status_code == 200
+    assert site.get(f'/api/files/{own_id}').content == b'owned-video'
+    assert site.get(f'/api/jobs/{other_id}').status_code == 403

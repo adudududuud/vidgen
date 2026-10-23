@@ -24,3 +24,51 @@ cancelButton.addEventListener('click',async()=>{if(!activeJob)return;cancelButto
 retryButton.addEventListener('click',async()=>{if(!activeJob)return;retryButton.disabled=true;try{const data=await jsonResponse(await fetch(`/api/jobs/${encodeURIComponent(activeJob.job_id)}/retry`,{method:'POST',headers:{'Content-Type':'application/json','X-Job-Token':activeJob.access_token},body:JSON.stringify({confirmed_rights:document.getElementById('rights').checked})}));sessionStorage.setItem(stateKey,JSON.stringify(data));showTask(data.job_id,data.access_token);}catch(e){message.textContent=e.message;}finally{retryButton.disabled=false;}});
 try{const last=JSON.parse(sessionStorage.getItem(stateKey)||'null');if(last?.job_id&&last?.access_token)showTask(last.job_id,last.access_token);}catch{}
 (async()=>{try{const data=await jsonResponse(await fetch('/api/config'));document.getElementById('limit-info').textContent=`每日免费额度：${data.daily_limit} 次 · 文件上限 ${data.max_mb} MB`;if(data.adsense_enabled){const area=document.getElementById('ads-area');area.hidden=false;const script=document.createElement('script');script.async=true;script.crossOrigin='anonymous';script.src=`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(data.adsense_client)}`;document.head.appendChild(script);const ins=document.createElement('ins');ins.className='adsbygoogle';ins.style.display='block';ins.dataset.adClient=data.adsense_client;ins.dataset.adSlot=data.adsense_slot;ins.dataset.adFormat='auto';ins.dataset.fullWidthResponsive='true';document.getElementById('ad-slot').appendChild(ins);script.onload=()=>{(window.adsbygoogle=window.adsbygoogle||[]).push({});};}}catch{}})();
+
+
+async function loadAccountJobs(){
+  const section=document.getElementById('account-jobs');
+  const list=document.getElementById('account-jobs-list');
+  if(section.hidden)return;
+  try{
+    const data=await jsonResponse(await fetch('/api/me/jobs?limit=30',{cache:'no-store'}));
+    list.replaceChildren();
+    if(!data.jobs.length){const empty=document.createElement('p');empty.className='muted';empty.textContent='登录后提交的任务会显示在这里。';list.appendChild(empty);return;}
+    const labels={queued:'排队中',running:'处理中',done:'已完成',error:'失败',cancelled:'已取消'};
+    for(const job of data.jobs){
+      const card=document.createElement('article');card.className='account-job';
+      const info=document.createElement('div');info.className='account-job-info';
+      const heading=document.createElement('strong');heading.textContent=`${labels[job.status]||job.status} · ${job.progress}%`;info.appendChild(heading);
+      const source=document.createElement('a');source.href=job.source_url;source.target='_blank';source.rel='noopener noreferrer';source.textContent=job.source_url;source.className='account-job-source';info.appendChild(source);
+      const date=document.createElement('small');date.textContent=new Date(job.created_at*1000).toLocaleString('zh-CN');info.appendChild(date);
+      if(job.error){const err=document.createElement('small');err.textContent=job.error;err.className='account-job-error';info.appendChild(err);}
+      card.appendChild(info);const actions=document.createElement('div');actions.className='account-job-actions';
+      if(job.status==='queued'||job.status==='running'){
+        const cancel=document.createElement('button');cancel.className='small-button';cancel.textContent=job.cancel_requested?'正在取消…':'取消';cancel.disabled=Boolean(job.cancel_requested);
+        cancel.addEventListener('click',async()=>{try{await jsonResponse(await fetch(`/api/jobs/${encodeURIComponent(job.id)}/cancel`,{method:'POST'}));await loadAccountJobs();if(activeJob?.job_id===job.id)await refreshTask(job.id,activeJob.access_token);}catch(e){alert(e.message);}});actions.appendChild(cancel);
+      }
+      if(job.status==='error'||job.status==='cancelled'){
+        const retry=document.createElement('button');retry.className='small-button';retry.textContent='重试';
+        retry.addEventListener('click',async()=>{if(!confirm('请确认你拥有该视频的下载权利或已取得授权。继续重试？'))return;try{const result=await jsonResponse(await fetch(`/api/jobs/${encodeURIComponent(job.id)}/retry`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirmed_rights:true})}));sessionStorage.setItem(stateKey,JSON.stringify(result));showTask(result.job_id,result.access_token);await loadAccountJobs();}catch(e){alert(e.message);}});actions.appendChild(retry);
+      }
+      if(job.status==='done'){
+        const download=document.createElement('a');download.className='small-button';download.href=`/api/files/${encodeURIComponent(job.id)}`;download.textContent='下载';actions.appendChild(download);
+      }
+      card.appendChild(actions);list.appendChild(card);
+    }
+  }catch(e){list.textContent=e.message;}
+}
+
+async function refreshAccountUI(){
+  try{
+    const me=await jsonResponse(await fetch('/api/me',{cache:'no-store'}));
+    const login=document.getElementById('google-login');const statusTag=document.getElementById('account-status');const logout=document.getElementById('google-logout');const section=document.getElementById('account-jobs');
+    login.hidden=!me.google_oauth_enabled||me.authenticated;
+    statusTag.hidden=!me.authenticated;statusTag.textContent=me.authenticated?(me.user.name||me.user.email):'';
+    logout.hidden=!me.authenticated;section.hidden=!me.authenticated;
+    if(me.authenticated)await loadAccountJobs();
+  }catch{}
+}
+document.getElementById('google-logout').addEventListener('click',async()=>{await fetch('/api/me/logout',{method:'POST'});await refreshAccountUI();});
+document.getElementById('refresh-account-jobs').addEventListener('click',loadAccountJobs);
+refreshAccountUI();

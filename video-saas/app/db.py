@@ -1,6 +1,7 @@
-"""SQLite job store. Single-process MVP with safe, parameterized filters."""
+"""SQLite store for jobs and optional Google-backed user accounts."""
 import sqlite3
 import time
+import uuid
 from contextlib import contextmanager
 from .config import get_settings
 
@@ -21,19 +22,28 @@ def connect():
 def init_db():
     with connect() as db:
         db.execute('PRAGMA journal_mode=WAL')
+        db.execute('''CREATE TABLE IF NOT EXISTS users (
+            id TEXT PRIMARY KEY, google_sub TEXT NOT NULL UNIQUE, email TEXT NOT NULL,
+            name TEXT NOT NULL DEFAULT '', picture TEXT NOT NULL DEFAULT '',
+            is_active INTEGER NOT NULL DEFAULT 1, created_at REAL NOT NULL, last_login REAL NOT NULL
+        )''')
         db.execute('''CREATE TABLE IF NOT EXISTS jobs (
             id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, source_url TEXT NOT NULL,
             ip_hash TEXT NOT NULL, status TEXT NOT NULL, progress INTEGER DEFAULT 0,
             filename TEXT, error TEXT, created_at REAL NOT NULL, updated_at REAL NOT NULL,
-            expires_at REAL NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0
+            expires_at REAL NOT NULL, cancel_requested INTEGER NOT NULL DEFAULT 0,
+            user_id TEXT REFERENCES users(id) ON DELETE SET NULL
         )''')
-        # Backward-compatible migration for databases created by V0.1.
+        # Backward-compatible migrations for V0.1 and V0.2 databases.
         columns = {row['name'] for row in db.execute('PRAGMA table_info(jobs)').fetchall()}
         if 'cancel_requested' not in columns:
             db.execute('ALTER TABLE jobs ADD COLUMN cancel_requested INTEGER NOT NULL DEFAULT 0')
+        if 'user_id' not in columns:
+            db.execute('ALTER TABLE jobs ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE SET NULL')
         db.execute('CREATE INDEX IF NOT EXISTS jobs_ip_created ON jobs(ip_hash,created_at)')
         db.execute('CREATE INDEX IF NOT EXISTS jobs_expiry ON jobs(expires_at)')
         db.execute('CREATE INDEX IF NOT EXISTS jobs_status_created ON jobs(status,created_at)')
+        db.execute('CREATE INDEX IF NOT EXISTS jobs_user_created ON jobs(user_id,created_at)')
 
 
 def recover_jobs():
@@ -42,15 +52,53 @@ def recover_jobs():
         db.execute("UPDATE jobs SET status='cancelled', error='任务已取消' WHERE status IN ('running','queued') AND cancel_requested=1")
 
 
-def create(job_id, secret_hash, url, ip_hash):
+def upsert_google_user(google_sub, email, name='', picture=''):
+    now = time.time()
+    with connect() as db:
+        db.execute('''INSERT INTO users(id,google_sub,email,name,picture,is_active,created_at,last_login)
+            VALUES (?,?,?,?,?,1,?,?)
+            ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,name=excluded.name,
+                picture=excluded.picture,last_login=excluded.last_login''',
+            (uuid.uuid4().hex, str(google_sub), str(email), str(name or '')[:160], str(picture or '')[:1000], now, now))
+        row = db.execute('SELECT * FROM users WHERE google_sub=?', (google_sub,)).fetchone()
+        return dict(row)
+
+
+def get_user(user_id):
+    with connect() as db:
+        row = db.execute('SELECT * FROM users WHERE id=?', (user_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_users(limit=200):
+    limit = max(1, min(int(limit), 500))
+    with connect() as db:
+        rows = db.execute('''SELECT u.id,u.email,u.name,u.picture,u.is_active,u.created_at,u.last_login,
+            COUNT(j.id) AS task_count,
+            SUM(CASE WHEN j.status='done' THEN 1 ELSE 0 END) AS completed_count
+            FROM users u LEFT JOIN jobs j ON j.user_id=u.id
+            GROUP BY u.id ORDER BY u.created_at DESC LIMIT ?''', (limit,)).fetchall()
+        return [dict(row) for row in rows]
+
+
+def set_user_active(user_id, is_active):
+    with connect() as db:
+        result = db.execute('UPDATE users SET is_active=? WHERE id=?', (1 if is_active else 0, user_id))
+        return result.rowcount == 1
+
+
+def create(job_id, secret_hash, url, ip_hash, user_id=None):
     now = time.time()
     settings = get_settings()
     with connect() as db:
-        cnt = db.execute('SELECT count(*) FROM jobs WHERE ip_hash=? AND created_at>?', (ip_hash, now-86400)).fetchone()[0]
+        if user_id:
+            cnt = db.execute('SELECT count(*) FROM jobs WHERE user_id=? AND created_at>?', (user_id, now-86400)).fetchone()[0]
+        else:
+            cnt = db.execute('SELECT count(*) FROM jobs WHERE user_id IS NULL AND ip_hash=? AND created_at>?', (ip_hash, now-86400)).fetchone()[0]
         if cnt >= settings.daily_limit:
             return False
-        db.execute('''INSERT INTO jobs(id,token_hash,source_url,ip_hash,status,progress,created_at,updated_at,expires_at,cancel_requested)
-            VALUES (?,?,?,?,'queued',0,?,?,?,0)''', (job_id, secret_hash, url, ip_hash, now, now, now+settings.ttl_hours*3600))
+        db.execute('''INSERT INTO jobs(id,token_hash,source_url,ip_hash,status,progress,created_at,updated_at,expires_at,cancel_requested,user_id)
+            VALUES (?,?,?,?,'queued',0,?,?,?,0,?)''', (job_id, secret_hash, url, ip_hash, now, now, now+settings.ttl_hours*3600, user_id))
         return True
 
 
@@ -132,13 +180,26 @@ def count_jobs(status=None, search=None):
         return db.execute('SELECT COUNT(*) FROM jobs' + where, params).fetchone()[0]
 
 
+def list_user_jobs(user_id, limit=50, offset=0):
+    limit = max(1, min(int(limit), 100))
+    offset = max(0, int(offset))
+    with connect() as db:
+        return [dict(x) for x in db.execute('SELECT * FROM jobs WHERE user_id=? ORDER BY created_at DESC LIMIT ? OFFSET ?', (user_id, limit, offset)).fetchall()]
+
+
+def count_user_jobs(user_id):
+    with connect() as db:
+        return db.execute('SELECT COUNT(*) FROM jobs WHERE user_id=?', (user_id,)).fetchone()[0]
+
+
 def stats():
     with connect() as db:
         return {'total': db.execute('SELECT COUNT(*) FROM jobs').fetchone()[0],
                 'completed': db.execute("SELECT COUNT(*) FROM jobs WHERE status='done'").fetchone()[0],
                 'failed': db.execute("SELECT COUNT(*) FROM jobs WHERE status='error'").fetchone()[0],
                 'cancelled': db.execute("SELECT COUNT(*) FROM jobs WHERE status='cancelled'").fetchone()[0],
-                'pending': db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('running','queued')").fetchone()[0]}
+                'pending': db.execute("SELECT COUNT(*) FROM jobs WHERE status IN ('running','queued')").fetchone()[0],
+                'users': db.execute('SELECT COUNT(*) FROM users').fetchone()[0]}
 
 
 def remove(job_id):

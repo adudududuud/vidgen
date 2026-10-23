@@ -8,7 +8,7 @@ if ($source -ne $target) {
   foreach($folder in @('app','static','deploy','scripts','docs','tests')) {
     Copy-Item -Path (Join-Path $source $folder) -Destination $target -Recurse -Force
   }
-  foreach($item in @('requirements.txt','requirements-test.txt','.env.example','Dockerfile','compose.yaml','README.md','.gitignore','install.cmd','start.cmd')) {
+  foreach($item in @('requirements.txt','requirements-test.txt','.env.example','Dockerfile','compose.yaml','README.md','SOURCE_NOTES.md','CHANGELOG.md','.gitignore','install.cmd','start.cmd')) {
     Copy-Item -Path (Join-Path $source $item) -Destination $target -Force
   }
 }

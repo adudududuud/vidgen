@@ -36,6 +36,13 @@ class Settings:
     adsense_client: str
     adsense_slot: str
     allowed_hosts: tuple[str, ...]
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
+
+    @property
+    def google_oauth_enabled(self) -> bool:
+        return bool(self.app_secret and self.google_client_id and self.google_client_secret)
 
 
 def get_settings() -> Settings:
@@ -58,4 +65,7 @@ def get_settings() -> Settings:
             'ALLOWED_HOSTS',
             'youtube.com,www.youtube.com,m.youtube.com,youtu.be,douyin.com,www.douyin.com,v.douyin.com'
         ).split(',') if x.strip()),
+        google_client_id=os.getenv('GOOGLE_CLIENT_ID', '').strip(),
+        google_client_secret=os.getenv('GOOGLE_CLIENT_SECRET', '').strip(),
+        google_redirect_uri=os.getenv('GOOGLE_REDIRECT_URI', '').strip(),
     )

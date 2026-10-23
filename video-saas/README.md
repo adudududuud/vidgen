@@ -1,4 +1,4 @@
-# 影速 Video SaaS MVP V0.2（简体中文）
+# 影速 Video SaaS MVP V0.3（简体中文）
 
 > 一个基于官方 **yt-dlp** 的中文视频素材处理站点。仅供自有、已授权或法律与来源平台明确允许的视频下载。默认关闭广告。
 
@@ -9,6 +9,9 @@
 - 管理后台：密码登录、摘要统计、任务搜索/状态筛选、分页、CSV 导出、删除已完成任务
 - V0.2：用户可取消排队/运行中的任务、重试失败或已取消的任务；任务取消请求在 SQLite 中持久化，运行中的下载器通过进度钩子检查取消状态
 - V0.2：兼容 V0.1 SQLite 数据库自动迁移，管理统计新增已取消任务数；健康检查返回版本号
+- V0.3：可选 Google OpenID Connect 登录、登录用户任务历史、按账号计算每日免费额度
+- V0.3：管理后台新增 Google 用户列表和启用/停用；停用账号无法使用账号历史功能
+- V0.3：用户表和任务 user_id 通过 SQLite 自动迁移添加，未配置 Google OAuth 时匿名模式继续可用
 - AdSense 广告脚手架（**默认关闭**，需要 Google 审批及政策合规评估）
 - Windows 原始 yt-dlp 源码拉取安装、测试脚本、Docker / Caddy / HTTPS 部署配置
 
@@ -63,7 +66,16 @@ Docker 数据与临时媒体默认放在命名卷 `app_data` / `app_downloads`�
 
 **必须先完成上线加固**：针对容器设置禁止访问内网、云元数据地址、回环、链路本地的网络出口策略，评估 DNS 重绑定和第三方视频重定向风险，完善分布式限流及恶意任务预防措施。仅靠应用层 HTTPS/域名白名单不足以防 SSRF。建议每个任务在隔离容器内运行且设置独立 CPU、磁盘、时间和网络配额。这个 MVP 暂未实现企业级任务隔离，不宜未经加固就向大量匿名用户开放。
 
-## 三、广告与收费
+## 三、Google 登录配置（可选）
+
+1. 在 Google Cloud Console 创建 OAuth 2.0 Web Client，配置 OAuth 同意屏幕。
+2. 添加授权重定向 URI：`https://你的域名/auth/google/callback`（本地测试时可使用 `http://127.0.0.1:8000/auth/google/callback`，但 URI 必须与 Google Console 完全一致）。
+3. 在 `.env` 设置 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`SITE_URL` 和 `GOOGLE_REDIRECT_URI`，重启服务。
+4. `/api/config` 的 `google_oauth_enabled` 返回 `true` 后，前台才会显示 Google 登录入口。未设置凭据时登录功能默认关闭。
+
+Google 登录需要有效的 OAuth 凭据、已注册的回调 URI 和可访问 Google 的网络。本项目代码不包含任何 Google 密钥，也未替用户创建 Google Cloud 项目或完成授权审核。
+
+## 四、广告与收费
 
 默认 `ADSENSE_ENABLED=false`。运营者需拥有合法内容权利、符合服务平台条款、拥有自己的广告帐号且通过 Google 审核。仅在网站和实际业务符合 [Google Publisher Policies](https://support.google.com/adsense/answer/10502938?hl=zh-Hans) 时配置：
 
@@ -75,17 +87,17 @@ ADSENSE_SLOT=你的广告单元数字ID
 
 本系统仅预留 AdSense 脚本与 `ads.txt`，不提供 Google 账户开户、网站审核或广告收益保证。Google 政策明确禁止协助下载内容平台禁止下载的流媒体视频的广告页面，所以**不要以未经授权的视频下载为广告变现对象**。
 
-## 四、V0.2 更新说明
+## 五、V0.2 更新说明
 
 - 新增 `POST /api/jobs/{job_id}/cancel` 与 `POST /api/jobs/{job_id}/retry`，仍须提供任务访问令牌并再次确认素材授权。
 - 管理接口支持 `status`、`q`、`limit`、`offset` 查询参数；CSV 导出仅管理员可访问。
 - 增加 `cancel_requested` 字段的向后兼容迁移；被取消的排队任务不能再被 worker 领取。
 - 新增取消、重试、后台筛选与 CSV 导出自动化测试。
 
-## 五、限制与下一版建议
+## 六、限制与下一版建议
 
-本版本是**单实例/单进程测试 MVP**，无普通用户账号、支付、Google OAuth、真正生产级速率限制、投诉工单、分布式队列、广告同意管理、多租户、计费、运营报表。任务执行使用线程池，重启时未完成任务标记为失败。文件按配置在下次启动/提交时清除，非严格准点删除。管理后台使用单一管理员密码和签名 Cookie，请务必在 HTTPS 下使用。
+本版本是**单实例/单进程测试 MVP**，无支付/订阅、生产级分布式限流、投诉工单、分布式队列、广告同意管理、多租户、计费、运营报表。任务执行使用线程池，重启时未完成任务标记为失败。文件按配置在下次启动/提交时清除，非严格准点删除。管理后台使用单一管理员密码和签名 Cookie，请务必在 HTTPS 下使用。
 
 受保护的视频、DRM、需要登录/Cookie 的内容不在本项目支持承诺内。部署服务还应核查业务所在法域的网络、版权、个人信息和商业运营要求。
 
-版本：0.2.0，方案与代码可供二次开发。原始 yt-dlp 许可证为 Unlicense（`https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE`）。
+版本：0.3.0，方案与代码可供二次开发。原始 yt-dlp 许可证为 Unlicense（`https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE`）。
